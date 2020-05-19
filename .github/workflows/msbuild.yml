@@ -8,53 +8,123 @@ on:
 
 jobs:
   build:
-
     runs-on: ${{ matrix.os }}
 
     strategy:
       matrix:
-        # Windows build is not yet working due to issues with the checked-in z3.exe
-        os: [ubuntu-latest]
-        shard: [1, 2, 3, 4, 5]
-      fail-fast: false
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+
     steps:
-    - name: Setup Nuget
-      uses: nuget/setup-nuget@v1
-    - name: Manually sync certs
-      run: cert-sync /etc/ssl/certs/ca-certificates.crt
-    - name: Add msbuild to PATH
+    - name: "Prepare: Set OS-Specific variables (ubuntu-latest)"
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        echo "::set-env name=Z3_URL::https://github.com/Z3Prover/z3/releases/download/z3-4.8.4/z3-4.8.4.d6df51951f4c-x64-ubuntu-14.04.zip"
+        echo "::set-env name=BUILD_RUNTIME::linux-x64"
+
+    - name: "Prepare: Set OS-Specific variables (windows-latest)"
+      if: matrix.os == 'windows-latest'
+      run: |
+        echo "::set-env name=Z3_URL::https://github.com/Z3Prover/z3/releases/download/z3-4.8.4/z3-4.8.4.d6df51951f4c-x64-win.zip"
+        echo "::set-env name=BUILD_RUNTIME::win-x64"
+
+    - name: "Prepare: Set OS-Specific variables (macos-latest)"
+      if: matrix.os == 'macos-latest'
+      run: |
+        echo "::set-env name=Z3_URL::https://github.com/Z3Prover/z3/releases/download/z3-4.8.4/z3-4.8.4.d6df51951f4c-x64-osx-10.14.1.zip"
+        echo "::set-env name=BUILD_RUNTIME::win-x64"
+
+    - name: "Prepare: Add msbuild to PATH (Windows)"
       if: matrix.os == 'windows-latest'
       uses: microsoft/setup-msbuild@v1.0.0
-    - name: Checkout Boogie
+    - name: "Prepare: Setup Nuget"
+      uses: nuget/setup-nuget@v1
+    - name: "Prepare: Manually sync certs"
+      if: matrix.os == 'ubuntu-latest'
+      run: cert-sync /etc/ssl/certs/ca-certificates.crt
+    - name: "Prepare: Checkout Dafny"
+      uses: actions/checkout@v2
+      with:
+        path: dafny
+
+    - name: "Dependencies: Checkout Boogie"
       uses: actions/checkout@v2
       with:
         repository: boogie-org/boogie
         ref: v2.4.21
         path: boogie
-    - name: Nuget Restore Boogie
+    - name: "Dependencies: Nuget Restore Boogie"
       run: nuget restore boogie/Source/Boogie.sln
-    - name: Build Boogie
+    - name: "Dependencies: Build Boogie"
       run: msbuild boogie/Source/Boogie.sln
-    - name: Checkout Dafny
+    - name: "Dependencies: Get Z3 (Linux/macOS)"
+      if: matrix.os != 'windows-latest'
+      run: |
+        wget ${Z3_URL}
+        unzip z3*.zip && rm z3*.zip && cp -r z3* dafny/Binaries/z3
+    - name: "Dependencies: Get Z3 (Windows)"
+      if: matrix.os == 'windows-latest'
+      shell: powershell
+      run: |
+        Invoke-WebRequest -OutFile z3.zip -Uri $env:Z3_URL
+        Expand-Archive z3.zip
+        Remove-Item z3.zip
+        Move-Item z3/z3* dafny/Binaries/z3
+        Remove-Item z3
+
+    - name: "Build Dafny"
+      working-directory: dafny
+      shell: bash
+      run: dotnet publish Source/Dafny.sln --framework net48 --runtime ${BUILD_RUNTIME} --output Binaries
+
+    - name: "Upload Artifact: Dafny Binaries"
+      uses: actions/upload-artifact@v2
+      with:
+        name: binaries-${{ matrix.os }}
+        path: dafny/Binaries/*
+
+
+  test:
+    needs: build
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+        shard: [1, 2, 3, 4, 5]
+      fail-fast: false
+
+    steps:
+    - name: "Prepare: Checkout Dafny"
       uses: actions/checkout@v2
       with:
         path: dafny
-    - name: Get Z3
-      if: matrix.os != 'windows-latest'
-      run: |
-        wget https://github.com/Z3Prover/z3/releases/download/z3-4.8.4/z3-4.8.4.d6df51951f4c-x64-ubuntu-14.04.zip
-        unzip z3*.zip && rm *.zip
-        cp -r z3* dafny/Binaries/z3
-    - name: Nuget Restore Dafny
-      run: nuget restore dafny/Source/Dafny.sln
-    - name: Build Dafny
-      run: msbuild dafny/Source/Dafny.sln
-    - uses: actions/setup-python@v1
-    - name: Upgrade outdated pip
+    - name: "Prepare: Add msbuild to PATH (Windows)"
+      if: matrix.os == 'windows-latest'
+      uses: microsoft/setup-msbuild@v1.0.0
+    - name: "Prepare: Get Build Artifact"
+      uses: actions/download-artifact@v2
+      with:
+        name: binaries-${{ matrix.os }}
+        path: dafny/Binaries/
+    - name: "Prepare: Fix artifact chmod" # See issue actions/upload-artifact#38
+      if: ${{ matrix.os }} != 'windows-latest'
+      run: chmod -R 770 dafny/Binaries/
+    - name: "Prepare: Install Python"
+      uses: actions/setup-python@v1
+    - name: "Prepare: Install Node"
+      uses: actions/setup-node@v1
+    - name: "Prepare: Upgrade outdated pip"
       run: python -m pip install --upgrade pip
-    - name: Install lit
+
+    - name: "Dependencies: Install lit, OutputCheck, pyyaml"
       run: pip install lit OutputCheck pyyaml
-    - uses: actions/setup-node@v1
-    - run: npm install bignumber.js
+    - name: "Dependencies: Install bignumber.js"
+      run: npm install bignumber.js
+
     - name: Run lit tests
       run: lit --time-tests -v --num-shards=5 --run-shard=${{ matrix.shard }} dafny/Test
