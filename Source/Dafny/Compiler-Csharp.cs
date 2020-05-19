@@ -2357,14 +2357,9 @@ namespace Microsoft.Dafny
       // DLL requirements differ based on whether we are using mono
       crx.immutableDllFileNames = new List<string>() {
         "System.Collections.Immutable.dll",
-        "System.Runtime.dll"
+        "System.Runtime.dll",
+	"netstandard.dll"
       };
-      // http://www.mono-project.com/docs/faq/technical/
-      var platform = (int)System.Environment.OSVersion.Platform;
-      var isUnix = platform == 4 || platform == 6 || platform == 128;
-      if (!isUnix) {
-          crx.immutableDllFileNames.Add("netstandard.dll");
-      }
 
       if (DafnyOptions.O.Optimize) {
         cp.CompilerOptions += " /optimize";

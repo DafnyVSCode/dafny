@@ -21,6 +21,8 @@ Binaries/DafnyServer.exe
 Binaries/DafnyRuntime.cs
 Binaries/export/
 Binaries/mono_crash*
+Binaries/net45
+Binaries/net48
 
 Package/
 
