@@ -34,7 +34,7 @@ jobs:
       if: matrix.os == 'macos-latest'
       run: |
         echo "::set-env name=Z3_URL::https://github.com/Z3Prover/z3/releases/download/z3-4.8.4/z3-4.8.4.d6df51951f4c-x64-osx-10.14.1.zip"
-        echo "::set-env name=BUILD_RUNTIME::win-x64"
+        echo "::set-env name=BUILD_RUNTIME::osx-x64"
 
     - name: "Prepare: Add msbuild to PATH (Windows)"
       if: matrix.os == 'windows-latest'
